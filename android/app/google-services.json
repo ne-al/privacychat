@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "605259942345",
+    "project_id": "privacychat-aa12d",
+    "storage_bucket": "privacychat-aa12d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:605259942345:android:d6a65674a7c4c2dbb5c018",
+        "android_client_info": {
+          "package_name": "com.neal.privacychat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBaoMUZiTBbG57M63NXiIb2C3iR9N4Y7BI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
