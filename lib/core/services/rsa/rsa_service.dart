@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fast_rsa/fast_rsa.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logger/logger.dart';
 
 class RsaService {
@@ -30,6 +31,30 @@ class RsaService {
     );
 
     return keys.publicKey;
+  }
+
+  Future<List<int>> generateHiveSecureKey() async {
+    User user = auth.currentUser!;
+
+    final key = Hive.generateSecureKey();
+    final keyString = key.join(',');
+
+    await storage.write(key: '${user.uid}_hiveEncryptionKey', value: keyString);
+
+    return key;
+  }
+
+  Future<List<int>> getHiveEncryptionKey() async {
+    User user = auth.currentUser!;
+    String? keyString =
+        await storage.read(key: '${user.uid}_hiveEncryptionKey');
+
+    if (keyString == null) {
+      return await generateHiveSecureKey();
+    }
+
+    List<int> key = keyString.split(',').map(int.parse).toList();
+    return key;
   }
 
   // get public key
@@ -61,9 +86,8 @@ class RsaService {
 
   // decrypt message with private key in bulk
 
-// Stream and decrypt messages
-  Stream<List<Map<String, dynamic>>> streamAndDecryptMessages(
-      String roomId, String privateKey) {
+  // Stream and decrypt messages
+  Stream<List<Map<String, dynamic>>> streamAndDecryptMessages(String roomId) {
     // Stream Firestore messages
     return FirebaseFirestore.instance
         .collection('chatroom')
@@ -76,6 +100,8 @@ class RsaService {
         .map((snapshot) async {
       // Decrypt all messages in bulk
       List<Map<String, dynamic>> decryptedMessages = [];
+      String? privateKey = await RsaService().getPrivateKey();
+
       for (var doc in snapshot.docs) {
         try {
           // Fetch encrypted message data
@@ -88,7 +114,7 @@ class RsaService {
             encryptedMessage,
             'utf-8',
             Hash.SHA256,
-            privateKey,
+            privateKey!,
           );
 
           // Add decrypted message to list

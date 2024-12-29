@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:privacychat/app/auth/service/auth_service.dart';
 import 'package:privacychat/app/screens/chat.dart';
 import 'package:privacychat/app/screens/search.dart';
+import 'package:privacychat/core/services/rsa/rsa_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -24,6 +25,12 @@ class _HomePageState extends State<HomePage> {
               await AuthService().signOut();
             },
             icon: Icon(Icons.logout_rounded),
+          ),
+          IconButton(
+            onPressed: () async {
+              await RsaService().generateHiveSecureKey();
+            },
+            icon: Icon(Icons.person),
           ),
         ],
       ),

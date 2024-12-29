@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:privacychat/core/cache/chat_cache_manger.dart';
 import 'package:privacychat/core/services/chat/message/message_service.dart';
 import 'package:privacychat/core/services/chat/room/chatroom_service.dart';
-import 'package:privacychat/core/services/rsa/rsa_service.dart';
 
 class ChatPage extends StatefulWidget {
   final String roomId;
+
   const ChatPage({
     super.key,
     required this.roomId,
@@ -17,6 +19,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
+  final ChatCacheManager chatCacheManager = ChatCacheManager();
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _messageFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -24,18 +27,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   late String receiverPublicKey;
   late String receiverUid;
 
-  late String? myPrivateKey;
-
   bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
+    chatCacheManager.initCache();
     WidgetsBinding.instance.addObserver(this);
     _init();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
   }
 
   Future<void> _init() async {
@@ -43,13 +42,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       isLoading = true;
     });
 
-    Map<String, dynamic> data =
-        await ChatRoomService().getReceiverData(widget.roomId);
+    try {
+      Map<String, dynamic> data =
+          await ChatRoomService().getReceiverData(widget.roomId);
 
-    myPrivateKey = await RsaService().getPrivateKey();
-
-    receiverPublicKey = data["receiverPublicKey"];
-    receiverUid = data["receiverUid"];
+      receiverPublicKey = data["receiverPublicKey"];
+      receiverUid = data["receiverUid"];
+    } catch (e) {
+      print("Error fetching receiver data: $e");
+    }
 
     setState(() {
       isLoading = false;
@@ -65,28 +66,33 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       receiverPublicKey,
       receiverUid,
     );
-
     _messageController.clear();
+    _scrollToBottom();
   }
 
-  void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: Duration(milliseconds: 50),
-        curve: Curves.easeOut,
-      );
-    }
+  void _scrollToBottom({bool animated = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        if (animated) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        } else {
+          _scrollController.jumpTo(
+            _scrollController.position.maxScrollExtent,
+          );
+        }
+      }
+    });
   }
 
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
-
     // Triggered when the keyboard appears or disappears
-    if (mounted) {
-      _scrollToBottom();
-    }
+    _scrollToBottom(animated: true);
   }
 
   @override
@@ -102,33 +108,45 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.roomId),
+        title: Text(
+          "Chat with Receiver", // Placeholder, replace with receiver's name
+          style: GoogleFonts.lato(fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
       ),
       body: SafeArea(
         child: isLoading
-            ? Center(
-                child: CircularProgressIndicator.adaptive(),
-              )
+            ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
                   Expanded(
-                    child: StreamBuilder(
-                      stream: RsaService().streamAndDecryptMessages(
-                          widget.roomId, myPrivateKey!),
+                    child: StreamBuilder<List<Map<String, dynamic>>>(
+                      stream: chatCacheManager
+                          .streamAndCacheMessages(widget.roomId),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
-                          return Center(child: CircularProgressIndicator());
-                        }
-                        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                          return Center(child: Text('No messages yet.'));
+                          return const Center(
+                              child: CircularProgressIndicator());
                         }
 
-                        // Display decrypted messages
-                        final messages = snapshot.data!;
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Text(
+                              "Error: ${snapshot.error}",
+                              style: GoogleFonts.lato(color: Colors.red),
+                            ),
+                          );
+                        }
+
+                        final messages = snapshot.data ?? [];
+
+                        if (messages.isEmpty) {
+                          return const Center(child: Text("No messages yet."));
+                        }
 
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          _scrollToBottom(); // Scroll to the bottom whenever new messages arrive
+                          _scrollToBottom(animated: false);
                         });
 
                         return ListView.builder(
@@ -136,27 +154,56 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                           itemCount: messages.length,
                           itemBuilder: (context, index) {
                             final message = messages[index];
-                            return ListTile(
-                              title: Text(message['message']),
-                              subtitle:
-                                  Text('Sent by: ${message['senderUid']}'),
-                              trailing: Text(
-                                  DateTime.fromMillisecondsSinceEpoch(
-                                          message['createdAt'])
-                                      .toString()),
+                            final isSentByMe =
+                                message['senderUid'] != receiverUid;
+
+                            return Align(
+                              alignment: isSentByMe
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isSentByMe
+                                      ? Colors.blue.shade100
+                                      : Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: isSentByMe
+                                      ? CrossAxisAlignment.end
+                                      : CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      message['message'],
+                                      style: GoogleFonts.lato(
+                                          fontSize: 16, color: Colors.black),
+                                    ),
+                                    const Gap(4),
+                                    Text(
+                                      DateFormat('hh:mm a').format(
+                                        DateTime.fromMillisecondsSinceEpoch(
+                                            message['createdAt']),
+                                      ),
+                                      style: GoogleFonts.lato(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             );
                           },
                         );
                       },
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
+                  Container(
+                    padding: const EdgeInsets.all(8.0),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Expanded(
                           child: TextField(
@@ -192,27 +239,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             ),
                           ),
                         ),
-                        Gap(12),
-                        GestureDetector(
-                          onTap: sendMessage,
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSecondaryContainer,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: Icon(
-                                Icons.send_rounded,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .outlineVariant,
-                              ),
-                            ),
-                          ),
+                        const Gap(8),
+                        IconButton(
+                          onPressed: sendMessage,
+                          icon: const Icon(Icons.send),
+                          color: Colors.blue,
                         ),
                       ],
                     ),

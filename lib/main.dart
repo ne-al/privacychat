@@ -2,7 +2,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:privacychat/app/auth/handler/auth_handler.dart';
+import 'package:privacychat/core/cache/chat_cache_manger.dart';
 import 'package:privacychat/firebase_options.dart';
 
 Future<void> main() async {
@@ -10,10 +12,11 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  var dir = await getApplicationDocumentsDirectory();
+  await Hive.initFlutter(dir.path);
 
-  await Hive.initFlutter();
-  await Hive.openBox('settings');
-  await Hive.openBox('messages');
+  ChatCacheManager chatCacheManager = ChatCacheManager();
+  await chatCacheManager.initCache();
 
   runApp(
     ProviderScope(

@@ -57,6 +57,7 @@ class AuthService {
     String username =
         Uuid().v4().toString().replaceAll("-", "").substring(0, 10);
     String publicKey = await RsaService().generateKeyPair();
+    await RsaService().generateHiveSecureKey();
 
     UserModel userModel = UserModel(
       uid: user.uid,
